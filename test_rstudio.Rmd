@@ -83,6 +83,68 @@ filtRs <- file.path(filt_path,paste0(sampleNames, "_R_filt.fastq.gz"))
 
 ```{r}
 #Filter the forward and reverse reads:
-out <- filterAndTrim(fnFs,filtFs,fnRs,filtRs,trunLen)
+out <- filterAndTrim(fnFs,filtFs,fnRs,filtRs,truncLen=c(240,160),
+                     maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
+                     compress=TRUE, multithread=TRUE) # On Windows set multithread=FALSE
+head(out)
+```
+
+#Infer sequence variants
+#After filtering, the typical amplicon bioinformatics workflow clusters sequencing reads into operational taxonomic units (OTUs): groups of sequencing reads that differ by less than a fixed dissimilarity threshhold. Here we instead use the high-resolution DADA2 method to to infer amplicon sequence variants (ASVs) exactly, without imposing any arbitrary threshhold, and thereby resolving variants that differ by as little as one nucleotide (Benjamin J Callahan et al. 2016).
+#The sequence data is imported into R from demultiplexed fastq files (i.e. one fastq for each sample) and simultaneously dereplicated to remove redundancy. We name the resulting derep-class objects by their sample name.
+
+```{r}
+#Dereplication combines all identical sequencing reads into “unique sequences” with a corresponding “abundance”: the number of reads with that unique sequence. Dereplication substantially reduces computation time by eliminating redundant comparisons.
+derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepRs <- derepFastq(filtRs, verbose=TRUE)
+# Name the derep-class objects by the sample names
+names(derepFs) <- sampleNames
+names(derepRs) <- sampleNames
+```
+
+```{r}
+#The DADA2 method relies on a parameterized model of substitution errors to distinguish sequencing errors from real biological variation. Because error rates can (and often do) vary substantially between sequencing runs and PCR protocols, the model parameters can be discovered from the data itself using a form of unsupervised learning in which sample inference is alternated with parameter estimation until both are jointly consistent.
+#Parameter learning is computationally intensive, as it requires multiple iterations of the sequence inference algorithm, and therefore it is often useful to estimate the error rates from a (sufficiently large) subset of the data.
+errF <- learnErrors(filtFs, multithread=TRUE)
+errR <- learnErrors(filtRs, multithread=TRUE)
+plotErrors(errF)
+plotErrors(errR)
+#In order to verify that the error rates have been reasonably well-estimated, we inspect the fit between the observed error rates (black points) and the fitted error rates (black lines) in Figure 1. These figures show the frequencies of each type of transition as a function of the quality.
+```
+
+```{r}
+#The DADA2 sequence inference method can run in two different modes: Independent inference by sample (pool=FALSE), and inference from the pooled sequencing reads from all samples (pool=TRUE). Independent inference has the advantage that computation time is linear in the number of samples, and memory requirements are flat with the number of samples. This allows scaling out to datasets of almost unlimited size. Pooled inference is more computationally taxing, and can become intractable for datasets of tens of millions of reads. However, pooling improves the detection of rare variants that were seen just once or twice in an individual sample but many times across all samples. As this dataset is not particularly large, we perform pooled inference. As of version 1.2, multithreading can now be activated with the arguments multithread = TRUE, which substantially speeds this step.
+dadaFs <- dada(derepFs, err=errF, multithread=TRUE)
+dadaRs <- dada(derepRs, err=errR, multithread=TRUE)
+#Inspecting the dada-class object returned by dada:
+dadaFs[[1]]
+#The DADA2 algorithm inferred 128 real sequence variants from the 1979 unique sequences in the first sample. The dada-class object contains multiple diagnostics about the quality of each inferred sequence variant(see help("dada-class") for some info).
+#The DADA2 sequence inference step removed (nearly) all substitution and indel errors from the data (Benjamin J Callahan et al. 2016). We now merge together the inferred forward and reverse sequences, removing paired sequences that do not perfectly overlap as a final control against residual errors.
+```
+
+```{r}
+#Construct sequence table and remove chimeras
+#The DADA2 method produces a sequence table that is a higher-resolution analogue of the common “OTU table”, i.e. a sample by sequence feature table valued by the number of times each sequence was observed in each sample.
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs)
+seqtabAll <- makeSequenceTable(mergers[!grepl("Mock", names(mergers))])
+table(nchar(getSequences(seqtabAll)))
+#Notably, chimeras have not yet been removed. The error model in the sequence inference algorithm does not include a chimera component, and therefore we expect this sequence table to include many chimeric sequences. We now remove chimeric sequences by comparing each inferred sequence to the others in the table, and removing those that can be reproduced by stitching together two more abundant sequences.
+seqtabNoC <- removeBimeraDenovo(seqtabAll)
+#Although exact numbers vary substantially by experimental condition, it is typical that chimeras comprise a substantial fraction of inferred sequence variants, but only a small fraction of all reads. That is what is observed here chimeras make up about 22% of the inferred sequence variants, but those variants account for only about 4% of the total sequence reads.
+```
+
+```{bash}
+cd home/rstudio
+wget https://zenodo.org/record/4587955/files/silva_nr99_v138.1_train_set.fa.gz
+```
+
+
+```{r}
+#Assign taxonomy
+#One of the benefits of using well-classified marker loci like the 16S rRNA gene is the ability to taxonomically classify the sequence variants. The dada2 package implements the naive Bayesian classifier method for this purpose (Wang et al. 2007). This classifier compares sequence variants to a training set of classified sequences, and here we use the RDP v16 training set (Cole et al. 2009).
+#The dada2 tutorial website contains formatted training fastas for the RDP training set, GreenGenes clustered at 97% identity, and the Silva reference database available. For fungal taxonomy, the General Fasta release files from the UNITE ITS database can be used as is. To follow this workflow, download the rdp_train_set_16.fa.gz file, and place it in the directory with the fastq files.
+fastaRef <- "home/rstudio/rdp_train_set_16.fa.gz"
+taxTab <- assignTaxonomy(seqtabNoC, refFasta=fastaRef, multithread=TRUE)
+unname(head(taxTab))
 ```
 
