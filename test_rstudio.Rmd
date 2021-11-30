@@ -95,7 +95,7 @@ head(out)
 
 ```{r}
 #Dereplication combines all identical sequencing reads into “unique sequences” with a corresponding “abundance”: the number of reads with that unique sequence. Dereplication substantially reduces computation time by eliminating redundant comparisons.
-derepFs <- derepFastq(filtFs, verbose=TRUE)  #verbose=on lui demande d'expliquer ce qu'il fait
+derepFs <- derepFastq(filtFs, verbose=TRUE)  #verbose=on lui demande d'expliquer les étapes qu'il fait
 derepRs <- derepFastq(filtRs, verbose=TRUE)
 # Name the derep-class objects by the sample names
 names(derepFs) <- sampleNames
@@ -107,17 +107,19 @@ names(derepRs) <- sampleNames
 #Parameter learning is computationally intensive, as it requires multiple iterations of the sequence inference algorithm, and therefore it is often useful to estimate the error rates from a (sufficiently large) subset of the data.
 errF <- learnErrors(filtFs, multithread=TRUE)
 errR <- learnErrors(filtRs, multithread=TRUE)
-plotErrors(errF)
+plotErrors(errF) # moy des scores q en abscisse pour les différentes positions, qu'importe l'ordre ; en ordonnées, la fqce des erreurs obs par DADA2 en log ; "A2C" = remplacement de A par C, etc.    #applique les corrections direct ds les reads
 plotErrors(errR)
 #In order to verify that the error rates have been reasonably well-estimated, we inspect the fit between the observed error rates (black points) and the fitted error rates (black lines) in Figure 1. These figures show the frequencies of each type of transition as a function of the quality.
 ```
+
+#seule raison de faire des OTUs = erreurs de séquençage ; donc DADA2 permet de ne plus avoir à regrouper en OTUs -> ASVs
 
 ```{r}
 #The DADA2 sequence inference method can run in two different modes: Independent inference by sample (pool=FALSE), and inference from the pooled sequencing reads from all samples (pool=TRUE). Independent inference has the advantage that computation time is linear in the number of samples, and memory requirements are flat with the number of samples. This allows scaling out to datasets of almost unlimited size. Pooled inference is more computationally taxing, and can become intractable for datasets of tens of millions of reads. However, pooling improves the detection of rare variants that were seen just once or twice in an individual sample but many times across all samples. As this dataset is not particularly large, we perform pooled inference. As of version 1.2, multithreading can now be activated with the arguments multithread = TRUE, which substantially speeds this step.
 dadaFs <- dada(derepFs, err=errF, multithread=TRUE)
 dadaRs <- dada(derepRs, err=errR, multithread=TRUE)
 #Inspecting the dada-class object returned by dada:
-dadaFs[[1]]
+dadaFs[[1]] #premier élmt d'une liste, faisant elle-^m partie d'une liste
 #The DADA2 algorithm inferred 128 real sequence variants from the 1979 unique sequences in the first sample. The dada-class object contains multiple diagnostics about the quality of each inferred sequence variant(see help("dada-class") for some info).
 #The DADA2 sequence inference step removed (nearly) all substitution and indel errors from the data (Benjamin J Callahan et al. 2016). We now merge together the inferred forward and reverse sequences, removing paired sequences that do not perfectly overlap as a final control against residual errors.
 ```
@@ -125,8 +127,8 @@ dadaFs[[1]]
 ```{r}
 #Construct sequence table and remove chimeras
 #The DADA2 method produces a sequence table that is a higher-resolution analogue of the common “OTU table”, i.e. a sample by sequence feature table valued by the number of times each sequence was observed in each sample.
-mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs)
-seqtabAll <- makeSequenceTable(mergers[!grepl("Mock", names(mergers))])
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs)   #on aligne les reads F et R
+seqtabAll <- makeSequenceTable(mergers[!grepl("Mock", names(mergers))])  #nb de fois que chaq séqces apparaît ds chaq
 table(nchar(getSequences(seqtabAll)))
 #Notably, chimeras have not yet been removed. The error model in the sequence inference algorithm does not include a chimera component, and therefore we expect this sequence table to include many chimeric sequences. We now remove chimeric sequences by comparing each inferred sequence to the others in the table, and removing those that can be reproduced by stitching together two more abundant sequences.
 seqtabNoC <- removeBimeraDenovo(seqtabAll)
@@ -171,7 +173,7 @@ detach("package:phangorn", unload=TRUE)
 ```{r}
 #Combine data into a phyloseq object
 #The package phyloseq organizes and synthesizes the different data types from a typical amplicon sequencing experiment into a single data object that can be easily manipulated. The last bit of information needed is the sample data contained in a .csv file. This can be downloaded from github:
-samdf <- read.cdv("https://raw.githubusercontent.com/spholmes/F1000_workflow/master/data/MIMARKS_Data_combined.csv",header=TRUE)
+samdf <- read.csv("https://raw.githubusercontent.com/spholmes/F1000_workflow/master/data/MIMARKS_Data_combined.csv",header=TRUE)
 samdf$SampleID <- paste0(gsub("00", "", samdf$host_subject_id), "D", samdf$age-21)
 samdf <- samdf[!duplicated(samdf$SampleID),] # Remove dupicate entries for reverse reads
 rownames(seqtabAll) <- gsub("124", "125", rownames(seqtabAll)) # Fix discrepancy
@@ -188,5 +190,9 @@ ps <- phyloseq(otu_table(seqtabNoC, taxa_are_rows=FALSE),
                tax_table(taxTab),phy_tree(fitGTR$tree))
 ps <- prune_samples(sample_names(ps) != "Mock", ps) # Remove mock sample
 ps
+```
+
+```{r}
+
 ```
 
