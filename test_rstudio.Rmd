@@ -85,7 +85,7 @@ filtRs <- file.path(filt_path,paste0(sampleNames, "_R_filt.fastq.gz"))
 #Filter the forward and reverse reads:
 out <- filterAndTrim(fnFs,filtFs,fnRs,filtRs,truncLen=c(240,160),
                      maxN=0, maxEE=c(2,2), truncQ=2, rm.phix=TRUE,
-                     compress=TRUE, multithread=TRUE) # On Windows set multithread=FALSE
+                     compress=TRUE, multithread=TRUE) #truncLen=1e valeur pour les reads Forward, 2e pour les Reverse ; qd le séquenceur ne sait pas qoi mettre, il met N, donc on veut nb de N=0 ; truncQ=2 = on enlève toutes les bases qd score arrvive à 20 ; on ajoute l'ADN de phiX, qui sert de témoin, mais faut ê sûr de bien l'enlever ensuite ; compress, car fichiers sont compressés ; multithread=on utilise tous les processeurs de la machine
 head(out)
 ```
 
@@ -95,7 +95,7 @@ head(out)
 
 ```{r}
 #Dereplication combines all identical sequencing reads into “unique sequences” with a corresponding “abundance”: the number of reads with that unique sequence. Dereplication substantially reduces computation time by eliminating redundant comparisons.
-derepFs <- derepFastq(filtFs, verbose=TRUE)
+derepFs <- derepFastq(filtFs, verbose=TRUE)  #verbose=on lui demande d'expliquer ce qu'il fait
 derepRs <- derepFastq(filtRs, verbose=TRUE)
 # Name the derep-class objects by the sample names
 names(derepFs) <- sampleNames
@@ -143,8 +143,50 @@ wget https://zenodo.org/record/4587955/files/silva_nr99_v138.1_train_set.fa.gz
 #Assign taxonomy
 #One of the benefits of using well-classified marker loci like the 16S rRNA gene is the ability to taxonomically classify the sequence variants. The dada2 package implements the naive Bayesian classifier method for this purpose (Wang et al. 2007). This classifier compares sequence variants to a training set of classified sequences, and here we use the RDP v16 training set (Cole et al. 2009).
 #The dada2 tutorial website contains formatted training fastas for the RDP training set, GreenGenes clustered at 97% identity, and the Silva reference database available. For fungal taxonomy, the General Fasta release files from the UNITE ITS database can be used as is. To follow this workflow, download the rdp_train_set_16.fa.gz file, and place it in the directory with the fastq files.
-fastaRef <- "home/rstudio/rdp_train_set_16.fa.gz"
+fastaRef <- "/home/rstudio/silva_nr99_v138.1_train_set.fa.gz"
 taxTab <- assignTaxonomy(seqtabNoC, refFasta=fastaRef, multithread=TRUE)
 unname(head(taxTab))
+```
+
+```{r}
+#Construct phylogenetic tree
+#Phylogenetic relatedness is commonly used to inform downstream analyses, especially the calculation of phylogeny-aware distances between microbial communities. The DADA2 sequence inference method is reference-free, so we must construct the phylogenetic tree relating the inferred sequence variants de novo. We begin by performing a multiple-alignment using the DECIPHER R package (Wright 2015).
+seqs <- getSequences(seqtabNoC)
+names(seqs) <- seqs #This propagates to the tip labels of the tree
+alignment <- AlignSeqs(DNAStringSet(seqs), anchor=NA, verbose=FALSE)
+```
+
+```{r}
+#The phangorn R package is then used to construct a phylogenetic tree. Here we first construct a neighbor-joining tree, and then fit a GTR+G+I (Generalized time-reversible with Gamma rate variation) maximum likelihood tree using the neighbor-joining tree as a starting point.
+phangAlign <- phyDat(as(alignment,"matrix"),type="DNA")
+dm <- dist.ml(phangAlign)
+treeNJ <- NJ(dm)  # Note, tip order != sequence order
+fit = pml(treeNJ, data=phangAlign)
+fitGTR <- update(fit, k=4, inv=0.2)
+fitGTR <- optim.pml(fitGTR, model="GTR", optInv=TRUE, optGamma=TRUE,
+                    rearrangement="stochastic", control=pml.control(trace=0))
+detach("package:phangorn", unload=TRUE)
+```
+
+```{r}
+#Combine data into a phyloseq object
+#The package phyloseq organizes and synthesizes the different data types from a typical amplicon sequencing experiment into a single data object that can be easily manipulated. The last bit of information needed is the sample data contained in a .csv file. This can be downloaded from github:
+samdf <- read.cdv("https://raw.githubusercontent.com/spholmes/F1000_workflow/master/data/MIMARKS_Data_combined.csv",header=TRUE)
+samdf$SampleID <- paste0(gsub("00", "", samdf$host_subject_id), "D", samdf$age-21)
+samdf <- samdf[!duplicated(samdf$SampleID),] # Remove dupicate entries for reverse reads
+rownames(seqtabAll) <- gsub("124", "125", rownames(seqtabAll)) # Fix discrepancy
+all(rownames(seqtabAll) %in% samdf$SampleID) # TRUE
+
+rownames(samdf) <- samdf$SampleID
+keep.cols <- c("collection_date", "biome", "target_gene", "target_subfragment",
+"host_common_name", "host_subject_id", "age", "sex", "body_product", "tot_mass",
+"diet", "family_relationship", "genotype", "SampleID") 
+samdf <- samdf[rownames(seqtabAll), keep.cols]
+#The full suite of data for this study – the sample-by-sequence feature table, the sample metadata, the sequence taxonomies, and the phylogenetic tree – can now be combined into a single object.
+ps <- phyloseq(otu_table(seqtabNoC, taxa_are_rows=FALSE), 
+               sample_data(samdf), 
+               tax_table(taxTab),phy_tree(fitGTR$tree))
+ps <- prune_samples(sample_names(ps) != "Mock", ps) # Remove mock sample
+ps
 ```
 
