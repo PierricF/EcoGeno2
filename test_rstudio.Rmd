@@ -5,18 +5,84 @@ output: github_document
 
 premier test de crtl de version
 
- 
-
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
-
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
-
+```{bash}
+sudo apt-get update -y
+sudo apt-get install -y libglpk-dev 
+sudo apt-get install -y liblzma-dev libbz2-dev
+```
 ```{r}
-plot(cars)
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("BiocStyle")
+BiocManager::install("Rhtslib")
+```
+```{r}
+library("knitr")
+library("BiocStyle")
+.cran_packages <- c("ggplot2", "gridExtra", "devtools")
+install.packages(.cran_packages) 
+.bioc_packages <- c("dada2", "phyloseq", "DECIPHER", "phangorn")
+BiocManager::install(.bioc_packages)
+# Load packages into session, and print package version
+sapply(c(.cran_packages, .bioc_packages), require, character.only = TRUE)
+```
+```{bash}
+cd ~
+wget https://mothur.s3.us-east-2.amazonaws.com/wiki/miseqsopdata.zip
+unzip miseqsopdata.zip
 ```
 
-Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
 
-When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
 
-The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
+
+```{r}
+#à relancer à chaque rdémarrage de R
+.cran_packages <- c("ggplot2", "gridExtra", "devtools")
+.bioc_packages <- c("dada2", "phyloseq", "DECIPHER", "phangorn")
+sapply(c(.cran_packages, .bioc_packages), require, character.only = TRUE)
+```
+
+
+
+```{r}
+set.seed(100)
+miseq_path <- "/home/rstudio/MiSeq_SOP"
+list.files(miseq_path)
+```
+
+```{r}
+# Sort ensures forward/reverse reads are in same order
+fnFs <- sort(list.files(miseq_path, pattern = "_R1_001.fastq"))
+fnRs <- sort(list.files(miseq_path, pattern = "_R2_001.fastq"))
+# Extract sample names, assuming filenames have format: SAMPLENAME_XXX.fastq
+sampleNames <- sapply(strsplit(fnFs,"_"),'[',1)    #fnFs transformé, strsplit=on garde juste la première partie d'une liste de caractères séparés par underscore  <=> on transforme le nom fichier en nom échantillon
+# Specify the full path to the fnFs and fnRs
+fnFs <- file.path(miseq_path,fnFs)  #file.path = construire une voie indépendante de la plateforme, utilisable par Unix, Windows, etc.
+fnRs <- file.path(miseq_path,fnRs)
+fnFs[1:3]
+fnRs[1:3]
+plotQualityProfile(fnFs[1:2]) # =fonction de DADA2
+#en noir = score qualité le plus fréquent à chaque position/nucléotide
+#score qualité, va de 0 à 50 en général ; à 30 = 1 chance sur 10^3 que ce soit pas la bonne base, etc.
+#en vert = moyenne des scores qualité
+#rouge = proportion des reads qui vont au moins jusqu'à cette position
+#Most Illumina sequencing data shows a trend of decreasing average quality towards the end of sequencing reads.
+plotQualityProfile(fnRs[1:2])
+#Here, the forward reads maintain high quality throughout, while the quality of the reverse reads drops significantly at about position 160. Therefore, we choose to truncate the forward reads at position 245, and the reverse reads at position 160. We also choose to trim the first 10 nucleotides of each read based on empirical observations across many Illumina datasets that these base positions are particularly likely to contain pathological errors.
+#on enlève les bases les moins sures, donc on perd le chevauchement, mais il faut faire attention et prendre en compte la taille de la région pour quand même avoir un alignement (au moins 10 pb !)
+```
+
+```{r}
+#We define the filenames for the filtered fastq.gz files:
+filt_path <- file.path(miseq_path,"filtered") # Place filtered files in filtered/ subdirectory
+if(!file_test("-d",filt_path)) dir.create(filt.path)
+filtFs <- file.path(filt_path,paste0(sampleNames, "_F_filt.fastq.gz"))
+filtRs <- file.path(filt_path,paste0(sampleNames, "_R_filt.fastq.gz"))
+#We combine these trimming parameters with standard filtering parameters, the most important being the enforcement of a maximum of 2 expected errors per-read (Edgar and Flyvbjerg 2015). Trimming and filtering is performed on paired reads jointly, i.e. both reads must pass the filter for the pair to pass.
+```
+
+```{r}
+#Filter the forward and reverse reads:
+out <- filterAndTrim(fnFs,filtFs,fnRs,filtRs,trunLen)
+```
+
