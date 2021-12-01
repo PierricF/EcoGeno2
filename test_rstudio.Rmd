@@ -36,7 +36,7 @@ unzip miseqsopdata.zip
 
 
 ```{r}
-#à relancer à chaque rdémarrage de R
+#à relancer à chaque redémarrage de R
 .cran_packages <- c("ggplot2", "gridExtra", "devtools")
 .bioc_packages <- c("dada2", "phyloseq", "DECIPHER", "phangorn")
 sapply(c(.cran_packages, .bioc_packages), require, character.only = TRUE)
@@ -209,14 +209,14 @@ ps
 
 #This tutorial shows a useful example workflow, but many more analyses are available to you in phyloseq, and R in general, than can fit in a single workflow. The phyloseq home page is a good place to begin browsing additional phyloseq documentation, as are the three vignettes included within the package, and linked directly at the phyloseq release page on Bioconductor.
 
-```PAS BESOIN
+PAS BESOIN
 #Loading the data
 #Many use cases result in the need to import and combine different data into a phyloseq class object, this can be done using th import_biom function to read recent QIIME format files, older files can still be imported with import_qiime. More complete details can be found on the phyloseq FAQ page.
 #In the previous section the results of dada2 sequence processing were organized into a phyloseq object. We have actually run dada2 on a larger set of samples from the same data source. This object was also saved in R-native serialized RDS format. We will re-load this here for completeness as the initial object ps. If you have not downloaded the whole repository you can access the ps file though github:
 ps_connect <-url("https://raw.githubusercontent.com/spholmes/F1000_workflow/master/data/ps.rds")
 ps = readRDS(ps_connect)
 ps
-```
+
 #Shiny-phyloseq
 #It can be beneficial to start the data exploration process interactively, this often saves time in detecting outliers and specific features of the data. Shiny-phyloseq (McMurdie and Holmes 2015) is an interactive web application that provides a graphical user interface to the phyloseq package. The object just loaded into the R session in this workflow is suitable for graphical exploration with Shiny-phyloseq.
 
@@ -375,9 +375,7 @@ if (any(!.inst)){
 }
 
 .inst <- .bioc_packages %in% installed.packages()
-if(any(!.inst)){
-  source("http://bioconductor.org/biocLite.R")
-  biocLite(.bioc_packages[!.inst])
+if(any(!.inst)){BiocManager::install(.bioc_packages[!.inst])
 }
  
 #We back these claims by illustrating several analyses on the mouse data prepared above. We experiment with several flavors of exploratory ordination before shifting to more formal testing and modeling, explaining the settings in which the different points of view are most appropriate. Finally, we provide example analyses of multitable data, using a study in which both metabolomic and microbial abundance measurements were collected on the same samples, to demonstrate that the general workflow presented here can be adapted to the multitable setting.
@@ -389,5 +387,200 @@ if(any(!.inst)){
 #Before doing the multivariate projections, we will add a few columns to our sample data, which can then be used to annotate plots. From Figure 6, we see that the ages of the mice come in a couple of groups, and so we make a categorical variable corresponding to young, middle-aged, and old mice. We also record the total number of counts seen in each sample and log-transform the data as an approximate variance stabilizing transformation.
 
 qplot(sample_data(ps)$age, geom = "histogram",binwidth=20) + xlab("age")
+
+#Figure 6 shows that the age covariate belongs to three separate clusters.
+
+qplot(log10(rowSums(otu_table(ps))),binwidth=0.2) +
+  xlab("Logged counts-per-sample")
+
+#These preliminary plots suggest certain preprocessing steps. The histogram in Figure 6 motivates the creation of a new categorical variable, binning age into one of the three peaks.
+
+#The histogram in Figure 7 suggests that a log(1+x) transformation might be sufficient for normalizing the abundance data for the exploratory analyses.
+#In fact this transformation is not sufficient for testing purposes and when performing differential abundances we recommend the variance stabilizing transformations available in DESeq2 through the phyloseq_to_deseq2 function, see the phyloseq_to_deseq2 tutorial here.
+#As our first step, we look at principal coordinates analysis (PCoA) with either the Bray-Curtis dissimilarity on the weighted Unifrac distance.
+
+sample_data(ps)$age_binned <- cut(sample_data(ps)$age,
+                          breaks = c(0, 100, 200, 400))
+levels(sample_data(ps)$age_binned) <- list(Young100="(0,100]", Mid100to200="(100,200]", Old200="(200,400]")
+sample_data(ps)$family_relationship=gsub(" ","",sample_data(ps)$family_relationship)
+pslog <- transform_sample_counts(ps, function(x) log(1 + x))
+out.wuf.log <- ordinate(pslog, method = "MDS", distance = "wunifrac")
+evals <- out.wuf.log$values$Eigenvalues
+plot_ordination(pslog, out.wuf.log, color = "age_binned") +
+  labs(col = "Binned Age") +
+  coord_fixed(sqrt(evals[2] / evals[1]))
+
+#Figure 8 showing the ordination on the logged abundance data reveals a few outliers.
+#These turn out to be the samples from females 5 and 6 on day 165 and the samples from males 3, 4, 5, and 6 on day 175. We will take them out, since we are mainly interested in the relationships between the non-outlier points.
+#Before we continue, we should check the two female outliers – they have been taken over by the same OTU/ASV, which has a relative abundance of over 90% in each of them. This is the only time in the entire data set that this ASV has such a high relative abundance – the rest of the time it is below 20%. In particular, its diversity is by far the lowest of all the samples.
+
+rel_abund <- t(apply(otu_table(ps), 1, function(x) x / sum(x)))
+qplot(rel_abund[, 12], geom = "histogram",binwidth=0.05) +
+  xlab("Relative abundance")
 ```
 
+```{r}
+#Different Ordination Projections
+#As we have seen, an important first step in analyzing microbiome data is to do unsupervised, exploratory analysis. This is simple to do in phyloseq, which provides many distances and ordination methods.
+#After documenting the outliers, we are going to compute ordinations with these outliers removed and more carefully study the output.
+
+outliers <- c("F5D165", "F6D165", "M3D175", "M4D175", "M5D175", "M6D175")
+ps <- prune_samples(!(sample_names(ps) %in% outliers), ps)
+
+#We are also going to remove samples with fewer than 1000 reads:
+
+which(!rowSums(otu_table(ps)) > 1000)
+
+ps <- prune_samples(rowSums(otu_table(ps)) > 1000, ps)
+pslog <- transform_sample_counts(ps, function(x) log(1 + x))
+
+#We’ll first perform a PCoA using Bray-Curtis dissimilarity.
+
+out.pcoa.log <- ordinate(pslog,  method = "MDS", distance = "bray")
+evals <- out.pcoa.log$values[,1]
+plot_ordination(pslog, out.pcoa.log, color = "age_binned",
+                  shape = "family_relationship") +
+  labs(col = "Binned Age", shape = "Litter")+
+  coord_fixed(sqrt(evals[2] / evals[1]))
+
+#We see that there is a fairly substantial age effect that is consistent between all the mice, male and female, and from different litters.
+#Next we look at double principal coordinates analysis (DPCoA) (Pavoine, Dufour, and Chessel 2004; Purdom 2010; Fukuyama et al. 2012), which is a phylogenetic ordination method and that provides a biplot representation of both samples and taxonomic categories. We see again that the second axis corresponds to young vs. old mice, and the biplot suggests an interpretation of the second axis: samples that have larger scores on the second axis have more taxa from Bacteroidetes and one subset of Firmicutes.
+
+out.dpcoa.log <- ordinate(pslog, method = "DPCoA")
+evals <- out.dpcoa.log$eig
+plot_ordination(pslog, out.dpcoa.log, color = "age_binned", label= "SampleID",
+                  shape = "family_relationship") +
+  labs(col = "Binned Age", shape = "Litter")+
+  coord_fixed(sqrt(evals[2] / evals[1]))
+
+#In Figure 11 we have the first axis explains 75 % of the variability, about 9 times that of the second axis; this translates into the elongated form of the ordination plot.
+
+plot_ordination(pslog, out.dpcoa.log, type = "species", color = "Phylum") +
+  coord_fixed(sqrt(evals[2] / evals[1]))
+
+#Finally, we can look at the results of PCoA with weighted Unifrac. As before, we find that the second axis is associated with an age effect, which is fairly similar to DPCoA. This is not surprising, because both are phylogenetic ordination methods taking abundance into account. However, when we compare biplots, we see that the DPCoA gave a much cleaner interpretation of the second axis, compared to weighted Unifrac.
+
+out.wuf.log <- ordinate(pslog, method = "PCoA", distance ="wunifrac")
+evals <- out.wuf.log$values$Eigenvalues
+plot_ordination(pslog, out.wuf.log, color = "age_binned",
+                  shape = "family_relationship") +
+  coord_fixed(sqrt(evals[2] / evals[1])) +
+  labs(col = "Binned Age", shape = "Litter")
+```
+
+#Why are the ordination plots so far from square?
+#Aspect ratio of ordination plots
+#In the ordination plots in Figure 8–Figure 14, you may have noticed as did the reviewers of the first version of the paper, that the maps are not presented as square representations as is often the case in standard PCoA and PCA plots in the literature.
+#The reason for this is that as we are trying to represent the distances between samples as faithfully as possible; we have to take into account that the second eigenvalue is always smaller than the first, sometimes considerably so, thus we normalize the axis norm ratios to the relevant eigenvalue ratios. This ensures that the variability represented in the plots is done so faithfully.
+
+```{r}
+#PCA on ranks
+#Microbial abundance data is often heavy-tailed, and sometimes it can be hard to identify a transformation that brings the data to normality. In these cases, it can be safer to ignore the raw abundances altogether, and work instead with ranks. We demonstrate this idea using a rank-transformed version of the data to perform PCA. First, we create a new matrix, representing the abundances by their ranks, where the microbe with the smallest in a sample gets mapped to rank 1, second smallest rank 2, etc.
+
+abund <- otu_table(pslog)
+abund_ranks <- t(apply(abund, 1, rank))
+
+#Naively using these ranks could make differences between pairs of low and high abundance microbes comparable. In the case where many bacteria are absent or present at trace amounts, an artificially large difference in rank could occur(Holmes et al. 2011) for minimally abundant taxa. To avoid this, all those microbes with rank below some threshold are set to be tied at 1. The ranks for the other microbes are shifted down, so there is no large gap between ranks.
+
+abund_ranks <- abund_ranks - 329
+abund_ranks[abund_ranks < 1] <- 1
+library(dplyr)
+library(reshape2)
+abund_df <- melt(abund, value.name = "abund") %>%
+  left_join(melt(abund_ranks, value.name = "rank"))
+colnames(abund_df) <- c("sample", "seq", "abund", "rank")
+
+abund_df <- melt(abund, value.name = "abund") %>%
+  left_join(melt(abund_ranks, value.name = "rank"))
+colnames(abund_df) <- c("sample", "seq", "abund", "rank")
+
+sample_ix <- sample(1:nrow(abund_df), 8)
+ggplot(abund_df %>%
+         filter(sample %in% abund_df$sample[sample_ix])) +
+  geom_point(aes(x = abund, y = rank, col = sample),
+             position = position_jitter(width = 0.2), size = 1.5) +
+  labs(x = "Abundance", y = "Thresholded rank") +
+  scale_color_brewer(palette = "Set2")
+
+#This transformation is illustrated in Figure 14.
+#The association between abundance and rank, for a few randomly selected samples. The numbers of the y-axis are those supplied to PCA.
+#We can now perform PCA and study the resulting biplot, given in the Figure below. To produce annotation for this figure, we used the following block.
+
+library(ade4)
+ranks_pca <- dudi.pca(abund_ranks, scannf = F, nf = 3) 
+row_scores <- data.frame(li = ranks_pca$li,
+                         SampleID = rownames(abund_ranks))
+col_scores <- data.frame(co = ranks_pca$co,
+                         seq = colnames(abund_ranks))
+tax <- tax_table(ps) %>%
+  data.frame(stringsAsFactors = FALSE)
+tax$seq <- rownames(tax)
+main_orders <- c("Clostridiales", "Bacteroidales", "Lactobacillales",
+                 "Coriobacteriales")
+tax$Order[!(tax$Order %in% main_orders)] <- "Other"
+tax$Order <- factor(tax$Order, levels = c(main_orders, "Other"))
+tax$otu_id <- seq_len(ncol(otu_table(ps)))
+row_scores <- row_scores %>%
+  left_join(sample_data(pslog))
+col_scores <- col_scores %>%
+  left_join(tax)
+evals_prop <- 100 * (ranks_pca$eig / sum(ranks_pca$eig))
+ggplot() +
+  geom_point(data = row_scores, aes(x = li.Axis1, y = li.Axis2), shape = 2) +
+  geom_point(data = col_scores, aes(x = 25 * co.Comp1, y = 25 * co.Comp2, col = Order),
+             size = .3, alpha = 0.6) +
+  scale_color_brewer(palette = "Set2") +
+  facet_grid(~ age_binned) +
+  guides(col = guide_legend(override.aes = list(size = 3))) +
+  labs(x = sprintf("Axis1 [%s%% variance]", round(evals_prop[1], 2)),
+       y = sprintf("Axis2 [%s%% variance]", round(evals_prop[2], 2))) +
+  coord_fixed(sqrt(ranks_pca$eig[2] / ranks_pca$eig[1])) +
+  theme(panel.border = element_rect(color = "#787878", fill = alpha("white", 0)))
+
+#The results are similar to the PCoA analyses computed without applying a truncated-ranking transformation, reinforcing our confidence in the analysis on the original data.
+```
+
+```{r}
+#Canonical correspondence
+#Canonical Correspondence Analysis (CCpnA) is an approach to ordination of a species by sample table that incorporates supplemental information about the samples. As before, the purpose of creating biplots is to determine which types of bacterial communities are most prominent in different mouse sample types. It can be easier to interpret these biplots when the ordering between samples reflects sample characteristics – variations in age or litter status in the mouse data, for example – and this central to the design of CCpnA.
+#The function allows us to create biplots where the positions of samples are determined by similarity in both species signatures and environmental characteristics; in contrast, principal components analysis or correspondence analysis only look at species signatures. More formally, it ensures that the resulting CCpnA directions lie in the span of the environmental variables; thorough treatments are available in (Braak 1985; Greenacre 2007).
+#Like PCoA and DPCoA, this method can be run using ordinate from the phyloseq package . In order to use supplemental sample data, it is necessary to provide an extra argument, specifying which of the features to consider – otherwise, defaults to using all measurements when producing the ordination.
+
+ps_ccpna <- ordinate(pslog, "CCA", formula = pslog ~ age_binned + family_relationship)
+
+#To access the positions for the biplot, we can use the function ordinate in phyloseq. Further, to facilitate figure annotation, we also join the site scores with the environmental data in the slot. Of the 23 total taxonomic orders, we only explicitly annotate the four most abundant – this makes the biplot easier to read.
+
+library(ggrepel)
+ps_scores <- vegan::scores(ps_ccpna)
+sites <- data.frame(ps_scores$sites)
+sites$SampleID <- rownames(sites)
+sites <- sites %>%
+  left_join(sample_data(ps))
+
+species <- data.frame(ps_scores$species)
+species$otu_id <- seq_along(colnames(otu_table(ps)))
+species <- species %>%
+  left_join(tax)
+evals_prop <- 100 * ps_ccpna$CCA$eig[1:2] / sum(ps_ccpna$CA$eig)
+ggplot() +
+  geom_point(data = sites, aes(x = CCA1, y = CCA2), shape = 2, alpha = 0.5) +
+  geom_point(data = species, aes(x = CCA1, y = CCA2, col = Order), size = 0.5) +
+  geom_text_repel(data = species %>% filter(CCA2 < -2),
+                    aes(x = CCA1, y = CCA2, label = otu_id),
+            size = 1.5, segment.size = 0.1) +
+  facet_grid(. ~ family_relationship) +
+  guides(col = guide_legend(override.aes = list(size = 3))) +
+  labs(x = sprintf("Axis1 [%s%% variance]", round(evals_prop[1], 2)),
+        y = sprintf("Axis2 [%s%% variance]", round(evals_prop[2], 2))) +
+  scale_color_brewer(palette = "Set2") +
+  coord_fixed(sqrt(ps_ccpna$CCA$eig[2] / ps_ccpna$CCA$eig[1])*0.45   ) +
+  theme(panel.border = element_rect(color = "#787878", fill = alpha("white", 0)))
+```
+
+
+###
+Avant les vacances de Noël => envoyer page github après avoir fini les ordinations : Knit --> garde le résultat en mémoire, 2 fichiers, à pousser sur R, le .md est interprété par github comme page web. /!\ Faire deux scripts séparés : chargement des packages d'un côté = ne pas faire le knit de l'installation des packages !
+
+Avant la rentrée !!  2e note: exercice facile : données de metabarcoding -> influence de la saison et de la profondeur -> on doit arriver jusqu'aux ordinations pour répondre
+
+3e exercice: données de l'article présenté (juste sur bactos !), sur le site de l'ENA, n° d'accession, telech version tsv de la liste, telech un lien ds rstudio ds terminal = wget ftp:// etc., faire ça p tous les forward et les reverse (wget--help pour trouver fonction permettant de mettre nom de fichier contenant tts les adresses p gagner du temps = "wget --help [barre verticale] grep files") !(!(manque tjs les "://")) (forward puis reverse s ^m ligne)
