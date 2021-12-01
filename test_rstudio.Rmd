@@ -78,6 +78,7 @@ filt_path <- file.path(miseq_path,"filtered") # Place filtered files in filtered
 if(!file_test("-d",filt_path)) dir.create(filt.path)
 filtFs <- file.path(filt_path,paste0(sampleNames, "_F_filt.fastq.gz"))
 filtRs <- file.path(filt_path,paste0(sampleNames, "_R_filt.fastq.gz"))
+
 #We combine these trimming parameters with standard filtering parameters, the most important being the enforcement of a maximum of 2 expected errors per-read (Edgar and Flyvbjerg 2015). Trimming and filtering is performed on paired reads jointly, i.e. both reads must pass the filter for the pair to pass.
 ```
 
@@ -95,7 +96,8 @@ head(out)
 
 ```{r}
 #Dereplication combines all identical sequencing reads into “unique sequences” with a corresponding “abundance”: the number of reads with that unique sequence. Dereplication substantially reduces computation time by eliminating redundant comparisons.
-derepFs <- derepFastq(filtFs, verbose=TRUE)  #verbose=on lui demande d'expliquer les étapes qu'il fait
+
+derepFs <- derepFastq(filtFs, verbose=TRUE)  #dérépliquer   #verbose=on lui demande d'expliquer les étapes qu'il fait
 derepRs <- derepFastq(filtRs, verbose=TRUE)
 # Name the derep-class objects by the sample names
 names(derepFs) <- sampleNames
@@ -105,10 +107,12 @@ names(derepRs) <- sampleNames
 ```{r}
 #The DADA2 method relies on a parameterized model of substitution errors to distinguish sequencing errors from real biological variation. Because error rates can (and often do) vary substantially between sequencing runs and PCR protocols, the model parameters can be discovered from the data itself using a form of unsupervised learning in which sample inference is alternated with parameter estimation until both are jointly consistent.
 #Parameter learning is computationally intensive, as it requires multiple iterations of the sequence inference algorithm, and therefore it is often useful to estimate the error rates from a (sufficiently large) subset of the data.
+
 errF <- learnErrors(filtFs, multithread=TRUE)
 errR <- learnErrors(filtRs, multithread=TRUE)
 plotErrors(errF) # moy des scores q en abscisse pour les différentes positions, qu'importe l'ordre ; en ordonnées, la fqce des erreurs obs par DADA2 en log ; "A2C" = remplacement de A par C, etc.    #applique les corrections direct ds les reads
 plotErrors(errR)
+
 #In order to verify that the error rates have been reasonably well-estimated, we inspect the fit between the observed error rates (black points) and the fitted error rates (black lines) in Figure 1. These figures show the frequencies of each type of transition as a function of the quality.
 ```
 
@@ -116,10 +120,12 @@ plotErrors(errR)
 
 ```{r}
 #The DADA2 sequence inference method can run in two different modes: Independent inference by sample (pool=FALSE), and inference from the pooled sequencing reads from all samples (pool=TRUE). Independent inference has the advantage that computation time is linear in the number of samples, and memory requirements are flat with the number of samples. This allows scaling out to datasets of almost unlimited size. Pooled inference is more computationally taxing, and can become intractable for datasets of tens of millions of reads. However, pooling improves the detection of rare variants that were seen just once or twice in an individual sample but many times across all samples. As this dataset is not particularly large, we perform pooled inference. As of version 1.2, multithreading can now be activated with the arguments multithread = TRUE, which substantially speeds this step.
+
 dadaFs <- dada(derepFs, err=errF, multithread=TRUE)
 dadaRs <- dada(derepRs, err=errR, multithread=TRUE)
 #Inspecting the dada-class object returned by dada:
 dadaFs[[1]] #premier élmt d'une liste, faisant elle-^m partie d'une liste
+
 #The DADA2 algorithm inferred 128 real sequence variants from the 1979 unique sequences in the first sample. The dada-class object contains multiple diagnostics about the quality of each inferred sequence variant(see help("dada-class") for some info).
 #The DADA2 sequence inference step removed (nearly) all substitution and indel errors from the data (Benjamin J Callahan et al. 2016). We now merge together the inferred forward and reverse sequences, removing paired sequences that do not perfectly overlap as a final control against residual errors.
 ```
@@ -127,34 +133,38 @@ dadaFs[[1]] #premier élmt d'une liste, faisant elle-^m partie d'une liste
 ```{r}
 #Construct sequence table and remove chimeras
 #The DADA2 method produces a sequence table that is a higher-resolution analogue of the common “OTU table”, i.e. a sample by sequence feature table valued by the number of times each sequence was observed in each sample.
-mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs)   #on aligne les reads F et R
-seqtabAll <- makeSequenceTable(mergers[!grepl("Mock", names(mergers))])  #nb de fois que chaq séqces apparaît ds chaq
-table(nchar(getSequences(seqtabAll)))
+
+mergers <- mergePairs(dadaFs, derepFs, dadaRs, derepRs)   #on aligne les reads F et R, appli sur jeu dadaFs, dérépliqué en derepFs, et idem R
+seqtabAll <- makeSequenceTable(mergers[!grepl("Mock", names(mergers))])  #nb de fois que chaq ASVs apparaît ds chaq échantillon -> table d'observations   #exclut les éch contenant "Mock" = commu artificielle pour évaluer notre pipeline
+table(nchar(getSequences(seqtabAll)))  #cherche les seq dans la table qu'on vient de construire -> lecture nb de caractères -> table de fréquence
+
 #Notably, chimeras have not yet been removed. The error model in the sequence inference algorithm does not include a chimera component, and therefore we expect this sequence table to include many chimeric sequences. We now remove chimeric sequences by comparing each inferred sequence to the others in the table, and removing those that can be reproduced by stitching together two more abundant sequences.
-seqtabNoC <- removeBimeraDenovo(seqtabAll)
+
+seqtabNoC <- removeBimeraDenovo(seqtabAll)  # chimères pdt PCR = fragments incomplets, p une raison x l'élongation s'est arrêtée avt fin du V4 -> fragment s'hybride à autre 16S amplifié car zones conservées, donc on a un mélange entre deux gènes de 16S = début d une bactos + fin d une autre bactos ; amplifié au cours des cycles restants ; mais on arrive bien à les enlever.
+
 #Although exact numbers vary substantially by experimental condition, it is typical that chimeras comprise a substantial fraction of inferred sequence variants, but only a small fraction of all reads. That is what is observed here chimeras make up about 22% of the inferred sequence variants, but those variants account for only about 4% of the total sequence reads.
 ```
 
 ```{bash}
 cd home/rstudio
-wget https://zenodo.org/record/4587955/files/silva_nr99_v138.1_train_set.fa.gz
+wget https://zenodo.org/record/4587955/files/silva_nr99_v138.1_train_set.fa.gz   #jeu d'entraînement Silva
 ```
-
-
 ```{r}
 #Assign taxonomy
 #One of the benefits of using well-classified marker loci like the 16S rRNA gene is the ability to taxonomically classify the sequence variants. The dada2 package implements the naive Bayesian classifier method for this purpose (Wang et al. 2007). This classifier compares sequence variants to a training set of classified sequences, and here we use the RDP v16 training set (Cole et al. 2009).
 #The dada2 tutorial website contains formatted training fastas for the RDP training set, GreenGenes clustered at 97% identity, and the Silva reference database available. For fungal taxonomy, the General Fasta release files from the UNITE ITS database can be used as is. To follow this workflow, download the rdp_train_set_16.fa.gz file, and place it in the directory with the fastq files.
+
 fastaRef <- "/home/rstudio/silva_nr99_v138.1_train_set.fa.gz"
-taxTab <- assignTaxonomy(seqtabNoC, refFasta=fastaRef, multithread=TRUE)
+taxTab <- assignTaxonomy(seqtabNoC, refFasta=fastaRef, multithread=TRUE)    #assigne taxonomie à chacune de nos séquences
 unname(head(taxTab))
 ```
 
 ```{r}
 #Construct phylogenetic tree
 #Phylogenetic relatedness is commonly used to inform downstream analyses, especially the calculation of phylogeny-aware distances between microbial communities. The DADA2 sequence inference method is reference-free, so we must construct the phylogenetic tree relating the inferred sequence variants de novo. We begin by performing a multiple-alignment using the DECIPHER R package (Wright 2015).
-seqs <- getSequences(seqtabNoC)
-names(seqs) <- seqs #This propagates to the tip labels of the tree
+
+seqs <- getSequences(seqtabNoC)   #prend le nom de chaq colonne (=les séqces), donc = liste de séquences
+names(seqs) <- seqs #This propagates to the tip labels of the tree 
 alignment <- AlignSeqs(DNAStringSet(seqs), anchor=NA, verbose=FALSE)
 ```
 
@@ -192,7 +202,183 @@ ps <- prune_samples(sample_names(ps) != "Mock", ps) # Remove mock sample
 ps
 ```
 
-```{r}
+#Using phyloseq
+#phyloseq(McMurdie and Holmes 2013) is an R package to import, store, analyze, and graphically display complex phylogenetic sequencing data that has already been clustered into Operational Taxonomic Units (OTUs) or more appropriately denoised, and it is most useful when there is also associated sample data, phylogeny, and/or taxonomic assignment of each taxa. leverages and builds upon many of the tools available in R for ecology and phylogenetic analysis (ape, vegan, ade4), while also using advanced/flexible graphic systems (ggplot2) to easily produce publication-quality graphics of complex phylogenetic data. The phyloseq package uses a specialized system of S4 data classes to store all related phylogenetic sequencing data as a single, self-consistent, self-describing experiment-level object, making it easier to share data and reproduce analyses. In general, phyloseq seeks to facilitate the use of R for efficient interactive and reproducible analysis of amplicon count data jointly with important sample covariates.
 
+#This tutorial shows a useful example workflow, but many more analyses are available to you in phyloseq, and R in general, than can fit in a single workflow. The phyloseq home page is a good place to begin browsing additional phyloseq documentation, as are the three vignettes included within the package, and linked directly at the phyloseq release page on Bioconductor.
+
+```{r}
+#Loading the data
+#Many use cases result in the need to import and combine different data into a phyloseq class object, this can be done using th import_biom function to read recent QIIME format files, older files can still be imported with import_qiime. More complete details can be found on the phyloseq FAQ page.
+#In the previous section the results of dada2 sequence processing were organized into a phyloseq object. We have actually run dada2 on a larger set of samples from the same data source. This object was also saved in R-native serialized RDS format. We will re-load this here for completeness as the initial object ps. If you have not downloaded the whole repository you can access the ps file though github:
+ps_connect <-url("https://raw.githubusercontent.com/spholmes/F1000_workflow/master/data/ps.rds")
+ps = readRDS(ps_connect)
+ps
+```
+#Shiny-phyloseq
+#It can be beneficial to start the data exploration process interactively, this often saves time in detecting outliers and specific features of the data. Shiny-phyloseq (McMurdie and Holmes 2015) is an interactive web application that provides a graphical user interface to the phyloseq package. The object just loaded into the R session in this workflow is suitable for graphical exploration with Shiny-phyloseq.
+
+#Filtering
+#phyloseq provides useful tools for filtering, subsetting, and agglomerating taxa – a task that is often appropriate or even necessary for effective analysis of microbiome count data. In this subsection, we graphically explore the prevalence of taxa in the example dataset, and demonstrate how this can be used as a filtering criteria. One of the reasons to filter in this way is to avoid spending much time analyzing taxa that were seen only rarely among samples. This also turns out to be a useful filter of noise (taxa that are actually just artifacts of the data collection process), a step that should probably be considered essential for datasets constructed via heuristic OTU-clustering methods, which are notoriously prone to generating spurious taxa.
+```{r}
+#Taxonomic Filtering
+#In many biological settings, the set of all organisms from all samples are well-represented in the available taxonomic reference database. When (and only when) this is the case, it is reasonable or even advisable to filter taxonomic features for which a high-rank taxonomy could not be assigned. Such ambiguous features in this setting are almost always sequence artifacts that don’t exist in nature. It should be obvious that such a filter is not appropriate for samples from poorly characterized or novel specimens, at least until the possibility of taxonomic novelty can be satisfactorily rejected. Phylum is a useful taxonomic rank to consider using for this purpose, but others may work effectively for your data.
+#To begin, create a table of read counts for each Phylum present in the dataset.
+
+# Show available ranks in the dataset
+rank_names(ps)
+## [1] "Kingdom" "Phylum"  "Class"   "Order"   "Family"  "Genus"
+# Create table, number of features for each phyla
+table(tax_table(ps)[, "Phylum"], exclude = NULL)
+
+#This shows a few phyla for which only one feature was observed. Those may be worth filtering, and we’ll check that next. First, notice that in this case, six features were annotated with a Phylum of NA. These features are probably artifacts in a dataset like this, and should be removed.
+#The following ensures that features with ambiguous phylum annotation are also removed. Note the flexibility in defining strings that should be considered ambiguous annotation.
+ps <- subset_taxa(ps, !is.na(Phylum) & !Phylum %in% c("", "uncharacterized"))
+#A useful next step is to explore feature prevalence in the dataset, which we will define here as the number of samples in which a taxon appears at least once.
+
+# Compute prevalence of each feature, store as data.frame
+prevdf = apply(X = otu_table(ps),
+               MARGIN = ifelse(taxa_are_rows(ps), yes = 1, no = 2),
+               FUN = function(x){sum(x > 0)})
+# Add taxonomy and total read counts to this data.frame
+prevdf = data.frame(Prevalence = prevdf,
+                    TotalAbundance = taxa_sums(ps),
+                    tax_table(ps))
+#Are there phyla that are comprised of mostly low-prevalence features? Compute the total and average prevalences of the features in each phylum.
+
+plyr::ddply(prevdf, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
+
+#Deinococcus-Thermus appeared in just over one percent of samples, and Fusobacteria appeared in just 2 samples total. In some cases it might be worthwhile to explore these two phyla in more detail despite this (though probably not Fusobacteria’s two samples). For the purposes of this example, though, they will be filtered from the dataset.
+
+# Define phyla to filter
+filterPhyla = c("Fusobacteria", "Deinococcus-Thermus")
+# Filter entries with unidentified Phylum.
+ps1 = subset_taxa(ps, !Phylum %in% filterPhyla)
+ps1
+```
+
+```{r}
+#Prevalence Filtering
+#The previous filtering steps are considered supervised, because they relied on prior information that is external to this experiment (a taxonomic reference database). This next filtering step is completely unsupervised, relying only on the data in this experiment, and a parameter that we will choose after exploring the data. Thus, this filtering step can be applied even in settings where taxonomic annotation is unavailable or unreliable.
+#First, explore the relationship of prevalence and total read count for each feature. Sometimes this reveals outliers that should probably be removed, and also provides insight into the ranges of either feature that might be useful. This aspect depends quite a lot on the experimental design and goals of the downstream inference, so keep these in mind. It may even be the case that different types of downstream inference require different choices here. There is no reason to expect ahead of time that a single filtering workflow is appropriate for all analysis.
+
+# Subset to the remaining phyla
+prevdf1 = subset(prevdf, Phylum %in% get_taxa_unique(ps1, "Phylum"))
+ggplot(prevdf1, aes(TotalAbundance, Prevalence / nsamples(ps),color=Phylum)) +
+  # Include a guess for parameter
+  geom_hline(yintercept = 0.05, alpha = 0.5, linetype = 2) +  geom_point(size = 2, alpha = 0.7) +
+  scale_x_log10() +  xlab("Total Abundance") + ylab("Prevalence [Frac. Samples]") +
+  facet_wrap(~Phylum) + theme(legend.position="none")
+
+#Each point in Figure 2 is a different taxa. Exploration of the data in this way is often useful for selecting filtering parameters, like the minimum prevalence criteria we will used to filter the data above.
+#Sometimes a natural separation in the dataset reveals itself, or at least, a conservative choice that is in a stable region for which small changes to the choice would have minor or no effect on the biological interpreation (stability). Here no natural separation is immediately evident, but it looks like we might reasonably define a prevalence threshold in a range of zero to ten percent or so. Take care that this choice does not introduce bias into a downstream analysis of association of differential abundance.
+#The following uses five percent of all samples as the prevalence threshold.
+
+# Define prevalence threshold as 5% of total samples
+prevalenceThreshold = 0.05 * nsamples(ps)
+prevalenceThreshold
+# Execute prevalence filter, using `prune_taxa()` function
+keepTaxa = rownames(prevdf1)[(prevdf1$Prevalence >= prevalenceThreshold)]
+ps2 = prune_taxa(keepTaxa, ps)
+```
+
+```{r}
+#Agglomerate taxa
+#When there is known to be a lot of species or sub-species functional redundancy in a microbial community, it might be useful to agglomerate the data features corresponding to closely related taxa. Ideally we would know the functional redundancies perfectly ahead of time, in which case we would agglomerate taxa using those defined relationships and the function in phyloseq. That kind of exquisite functional data is usually not available, and different pairs of microbes will have different sets of overlapping functions, complicating the matter of defining appropriate grouping criteria.
+#While not necessarily the most useful or functionally-accurate criteria for grouping microbial features (sometimes far from accurate), taxonomic agglomeration has the advantage of being much easier to define ahead of time. This is because taxonomies are usually defined with a comparatively simple tree-like graph structure that has a fixed number of internal nodes, called “ranks”. This structure is simple enough for the phyloseq package to represent taxonomies as table of taxonomy labels. Taxonomic agglomeration groups all the “leaves” in the hierarchy that descend from the user-prescribed agglomerating rank, this is sometimes called ‘glomming’.
+#The following example code shows how one would combine all features that descend from the same genus.
+# How many genera would be present after filtering?
+length(get_taxa_unique(ps2, taxonomic.rank = "Genus"))
+ps3 = tax_glom(ps2, "Genus", NArm = TRUE)
+
+#If taxonomy is not available or not reliable, tree-based agglomeration is a “taxonomy-free” alternative to combine data features corresponding to closely-related taxa. In this case, rather than taxonomic rank, the user specifies a tree height corresponding to the phylogenetic distance between features that should define their grouping. This is very similar to “OTU Clustering”, except that in many OTU Clustering algorithms the sequence distance being used does not have the same (or any) evolutionary definition.
+
+h1 = 0.4
+ps4 = tip_glom(ps2, h = h1)
+
+#Here phyloseq’s plot_tree() function compare the original unfiltered data, the tree after taxonoic agglomeration, and the tree after phylogenetic agglomeration. These are stored as separate plot objects, then rendered together in one combined graphic using gridExtra::grid.arrange.
+
+multiPlotTitleTextSize = 15
+p2tree = plot_tree(ps2, method = "treeonly",
+                   ladderize = "left",
+                   title = "Before Agglomeration") +
+  theme(plot.title = element_text(size = multiPlotTitleTextSize))
+p3tree = plot_tree(ps3, method = "treeonly",
+                   ladderize = "left", title = "By Genus") +
+  theme(plot.title = element_text(size = multiPlotTitleTextSize))
+p4tree = plot_tree(ps4, method = "treeonly",
+                   ladderize = "left", title = "By Height") +
+  theme(plot.title = element_text(size = multiPlotTitleTextSize))
+# group plots together
+grid.arrange(nrow = 1, p2tree, p3tree, p4tree)
+
+#Figure 3 shows the original tree on the left, taxonomic agglomeration at Genus rank in the middle and phylogenetic agglomeration at a fixed distance of 0.4 on the right.
+```
+
+```{r}
+#Abundance value transformation
+#It is usually necessary to transform microbiome count data to account for differences in library size, variance, scale, etc. The phyloseq package provides a flexible interface for defining new functions to accomplish these transformations of the abundance values via the function transform_sample_counts(). The first argument to this function is the phyloseq object you want to transform, and the second argument is an R function that defines the transformation. The R function is applied sample-wise, expecting that the first unnamed argument is a vector of taxa counts in the same order as the phyloseq object. Additional arguments are passed on to the function specified in the second argument, providing an explicit means to include pre-computed values, previously defined parameters/thresholds, or any other object that might be appropriate for computing the transformed values of interest.
+#This example begins by defining a custom plot function, plot_abundance(), that uses phyloseq’s function to define a relative abundance graphic. We will use this to compare more easily differences in scale and distribution of the abundance values in our phyloseq object before and after transformation.
+plot_abundance = function(physeq,title = "",
+                          Facet = "Order", Color = "Phylum"){
+  # Arbitrary subset, based on Phylum, for plotting
+  p1f = subset_taxa(physeq, Phylum %in% c("Firmicutes"))
+  mphyseq = psmelt(p1f)
+  mphyseq <- subset(mphyseq, Abundance > 0)
+  ggplot(data = mphyseq, mapping = aes_string(x = "sex",y = "Abundance",
+                              color = Color, fill = Color)) +
+    geom_violin(fill = NA) +
+    geom_point(size = 1, alpha = 0.3,
+               position = position_jitter(width = 0.3)) +
+    facet_wrap(facets = Facet) + scale_y_log10()+
+    theme(legend.position="none")
+}
+
+#The transformation in this case converts the counts from each sample into their frequencies, often referred to as proportions or relative abundances. This function is so simple that it is easiest to define it within the function call to transform_sample_counts().
+
+# Transform to relative abundance. Save as new object.
+ps3ra = transform_sample_counts(ps3, function(x){x / sum(x)})
+
+#Now we plot the abundance values before and after transformation.
+plotBefore = plot_abundance(ps3,"")
+plotAfter = plot_abundance(ps3ra,"")
+# Combine each plot into one graphic.
+grid.arrange(nrow = 2,  plotBefore, plotAfter)
+#Figure 4 shows the comparison of original abundances (top panel) and relative abundances (lower).
+```
+
+```{r}
+#Subset by taxonomy
+#Notice on the previous plot that Lactobacillales appears to be a taxonomic Order with bimodal abundance profile in the data. We can check for a taxonomic explanation of this pattern by plotting just that taxonomic subset of the data. For this, we subset with the function, and then specify a more precise taxonomic rank to the argument of the function that we defined above.
+
+psOrd = subset_taxa(ps3ra, Order == "Lactobacillales")
+plot_abundance(psOrd, Facet = "Genus", Color = NULL)
+
+#Figure 5 shows the relative abundances of Lactobacillales taxonomic Order, grouped by host sex and genera. Here it is clear that the apparent biomodal distribution of Lactobacillales on the previous plot was the result of a mixture of two different genera, with the typical Lactobacillus relative abundance much larger than Streptococcus.
+#At this stage in the workflow, after converting raw reads to interpretable species abundances, and after filtering and transforming these abundances to focus attention on scientifically meaningful quantities, we are in a position to consider more careful statistical analysis. R is an ideal environment for performing these analyses, as it has an active community of package developers building simple interfaces to sophisticated techniques. As a variety of methods are available, there is no need to commit to any rigid analysis strategy a priori. Further, the ability to easily call packages without reimplementing methods frees researchers to iterate rapidly through alternative analysis ideas. The advantage of performing this full workflow in R is that this transition from bioinformatics to statistics is effortless.
+
+#Let’s start by installing a few packages that are available for these complementary analyses:
+.cran_packages <- c( "shiny","miniUI", "caret", "pls", "e1071", "ggplot2", "randomForest", "dplyr", "ggrepel", "nlme", "devtools",
+                  "reshape2", "PMA", "structSSI", "ade4",
+                  "ggnetwork", "intergraph", "scales")
+.github_packages <- c("jfukuyama/phyloseqGraphTest")
+.bioc_packages <- c("genefilter", "impute")
+# Install CRAN packages (if not already installed)
+.inst <- .cran_packages %in% installed.packages()
+if (any(!.inst)){
+  install.packages(.cran_packages[!.inst],repos = "http://cran.rstudio.com/")
+}
+.inst <- .github_packages %in% installed.packages()
+if (any(!.inst)){
+  devtools::install_github(.github_packages[!.inst])
+}
+
+.inst <- .bioc_packages %in% installed.packages()
+if(any(!.inst)){
+  source("http://bioconductor.org/biocLite.R")
+  biocLite(.bioc_packages[!.inst])
+}
+
+#We back these claims by illustrating several analyses on the mouse data prepared above. We experiment with several flavors of exploratory ordination before shifting to more formal testing and modeling, explaining the settings in which the different points of view are most appropriate. Finally, we provide example analyses of multitable data, using a study in which both metabolomic and microbial abundance measurements were collected on the same samples, to demonstrate that the general workflow presented here can be adapted to the multitable setting.
 ```
 
