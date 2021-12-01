@@ -183,22 +183,24 @@ detach("package:phangorn", unload=TRUE)
 ```{r}
 #Combine data into a phyloseq object
 #The package phyloseq organizes and synthesizes the different data types from a typical amplicon sequencing experiment into a single data object that can be easily manipulated. The last bit of information needed is the sample data contained in a .csv file. This can be downloaded from github:
-samdf <- read.csv("https://raw.githubusercontent.com/spholmes/F1000_workflow/master/data/MIMARKS_Data_combined.csv",header=TRUE)
-samdf$SampleID <- paste0(gsub("00", "", samdf$host_subject_id), "D", samdf$age-21)
-samdf <- samdf[!duplicated(samdf$SampleID),] # Remove dupicate entries for reverse reads
+
+samdf <- read.csv("https://raw.githubusercontent.com/spholmes/F1000_workflow/master/data/MIMARKS_Data_combined.csv",header=TRUE)  #métadonnées associées à nos souris
+samdf$SampleID <- paste0(gsub("00", "", samdf$host_subject_id), "D", samdf$age-21)    #corriger des erreurs
+samdf <- samdf[!duplicated(samdf$SampleID),] # Remove dupicate entries for reverse reads      (reçoit les infos de sampleID)    
 rownames(seqtabAll) <- gsub("124", "125", rownames(seqtabAll)) # Fix discrepancy
 all(rownames(seqtabAll) %in% samdf$SampleID) # TRUE
 
 rownames(samdf) <- samdf$SampleID
 keep.cols <- c("collection_date", "biome", "target_gene", "target_subfragment",
 "host_common_name", "host_subject_id", "age", "sex", "body_product", "tot_mass",
-"diet", "family_relationship", "genotype", "SampleID") 
-samdf <- samdf[rownames(seqtabAll), keep.cols]
+"diet", "family_relationship", "genotype", "SampleID")    #ne garder que ces colonnes
+samdf <- samdf[rownames(seqtabAll), keep.cols]   #reçoit les lignes de seqtaball et qui sont dans le vecteur keepcols
+
 #The full suite of data for this study – the sample-by-sequence feature table, the sample metadata, the sequence taxonomies, and the phylogenetic tree – can now be combined into a single object.
-ps <- phyloseq(otu_table(seqtabNoC, taxa_are_rows=FALSE), 
-               sample_data(samdf), 
-               tax_table(taxTab),phy_tree(fitGTR$tree))
-ps <- prune_samples(sample_names(ps) != "Mock", ps) # Remove mock sample
+ps <- phyloseq(otu_table(seqtabNoC, taxa_are_rows=FALSE),   #ps reçoit la commande phyloseq, appliquée à seqtabnoc=table d'observations, pas de lignes qui f=definisent la taxonomie, et on spécifie que ce=est une otu_table
+               sample_data(samdf),       #sur table de metadonnees
+               tax_table(taxTab),phy_tree(fitGTR$tree))      #sur taxtab ; phytree cest larbre phylogenetique, et cherche larbre ds fitGR
+ps <- prune_samples(sample_names(ps) != "Mock", ps) # Remove mock sample   #prune=enlever, dc on garde les éch qui ne cpntiennent pas Mock
 ps
 ```
 
@@ -207,7 +209,7 @@ ps
 
 #This tutorial shows a useful example workflow, but many more analyses are available to you in phyloseq, and R in general, than can fit in a single workflow. The phyloseq home page is a good place to begin browsing additional phyloseq documentation, as are the three vignettes included within the package, and linked directly at the phyloseq release page on Bioconductor.
 
-```{r}
+```PAS BESOIN
 #Loading the data
 #Many use cases result in the need to import and combine different data into a phyloseq class object, this can be done using th import_biom function to read recent QIIME format files, older files can still be imported with import_qiime. More complete details can be found on the phyloseq FAQ page.
 #In the previous section the results of dada2 sequence processing were organized into a phyloseq object. We have actually run dada2 on a larger set of samples from the same data source. This object was also saved in R-native serialized RDS format. We will re-load this here for completeness as the initial object ps. If you have not downloaded the whole repository you can access the ps file though github:
@@ -229,14 +231,14 @@ ps
 rank_names(ps)
 ## [1] "Kingdom" "Phylum"  "Class"   "Order"   "Family"  "Genus"
 # Create table, number of features for each phyla
-table(tax_table(ps)[, "Phylum"], exclude = NULL)
+table(tax_table(ps)[, "Phylum"], exclude = NULL)  #on exclut qd champ phylum est nul
 
 #This shows a few phyla for which only one feature was observed. Those may be worth filtering, and we’ll check that next. First, notice that in this case, six features were annotated with a Phylum of NA. These features are probably artifacts in a dataset like this, and should be removed.
 #The following ensures that features with ambiguous phylum annotation are also removed. Note the flexibility in defining strings that should be considered ambiguous annotation.
-ps <- subset_taxa(ps, !is.na(Phylum) & !Phylum %in% c("", "uncharacterized"))
+ps <- subset_taxa(ps, !is.na(Phylum) & !Phylum %in% c("", "uncharacterized")) #on enlève aussi qd phylum est marqué NA
 #A useful next step is to explore feature prevalence in the dataset, which we will define here as the number of samples in which a taxon appears at least once.
 
-# Compute prevalence of each feature, store as data.frame
+# Compute prevalence of each feature, store as data.frame                #Pas nécessaire.
 prevdf = apply(X = otu_table(ps),
                MARGIN = ifelse(taxa_are_rows(ps), yes = 1, no = 2),
                FUN = function(x){sum(x > 0)})
@@ -245,7 +247,6 @@ prevdf = data.frame(Prevalence = prevdf,
                     TotalAbundance = taxa_sums(ps),
                     tax_table(ps))
 #Are there phyla that are comprised of mostly low-prevalence features? Compute the total and average prevalences of the features in each phylum.
-
 plyr::ddply(prevdf, "Phylum", function(df1){cbind(mean(df1$Prevalence),sum(df1$Prevalence))})
 
 #Deinococcus-Thermus appeared in just over one percent of samples, and Fusobacteria appeared in just 2 samples total. In some cases it might be worthwhile to explore these two phyla in more detail despite this (though probably not Fusobacteria’s two samples). For the purposes of this example, though, they will be filtered from the dataset.
@@ -380,5 +381,13 @@ if(any(!.inst)){
 }
  
 #We back these claims by illustrating several analyses on the mouse data prepared above. We experiment with several flavors of exploratory ordination before shifting to more formal testing and modeling, explaining the settings in which the different points of view are most appropriate. Finally, we provide example analyses of multitable data, using a study in which both metabolomic and microbial abundance measurements were collected on the same samples, to demonstrate that the general workflow presented here can be adapted to the multitable setting.
+
+```
+
+```{r}
+#Preprocessing
+#Before doing the multivariate projections, we will add a few columns to our sample data, which can then be used to annotate plots. From Figure 6, we see that the ages of the mice come in a couple of groups, and so we make a categorical variable corresponding to young, middle-aged, and old mice. We also record the total number of counts seen in each sample and log-transform the data as an approximate variance stabilizing transformation.
+
+qplot(sample_data(ps)$age, geom = "histogram",binwidth=20) + xlab("age")
 ```
 
