@@ -378,7 +378,7 @@ if(any(!.inst)){
   source("http://bioconductor.org/biocLite.R")
   biocLite(.bioc_packages[!.inst])
 }
-
+ 
 #We back these claims by illustrating several analyses on the mouse data prepared above. We experiment with several flavors of exploratory ordination before shifting to more formal testing and modeling, explaining the settings in which the different points of view are most appropriate. Finally, we provide example analyses of multitable data, using a study in which both metabolomic and microbial abundance measurements were collected on the same samples, to demonstrate that the general workflow presented here can be adapted to the multitable setting.
 ```
 
