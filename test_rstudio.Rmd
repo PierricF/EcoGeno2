@@ -3,10 +3,10 @@ title: "R Notebook"
 output: github_document
 ---
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE, cache=TRUE)
+knitr::opts_chunk$set(echo = TRUE)
 ```
 
- CC1  Pierric MATHIS--FUMEL
+**CC1**  *Pierric MATHIS--FUMEL*
   
   
 ```{bash, eval=FALSE}

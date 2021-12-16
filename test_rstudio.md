@@ -1,7 +1,7 @@
 R Notebook
 ================
 
-CC1 Pierric MATHIS–FUMEL
+**CC1** *Pierric MATHIS–FUMEL*
 
 ``` bash
 sudo apt-get update -y
