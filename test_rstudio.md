@@ -857,48 +857,6 @@ abund_ranks <- t(apply(abund, 1, rank))
 abund_ranks <- abund_ranks - 329
 abund_ranks[abund_ranks < 1] <- 1
 library(dplyr)
-```
-
-    ## 
-    ## Attaching package: 'dplyr'
-
-    ## The following objects are masked from 'package:Biostrings':
-    ## 
-    ##     collapse, intersect, setdiff, setequal, union
-
-    ## The following object is masked from 'package:GenomeInfoDb':
-    ## 
-    ##     intersect
-
-    ## The following object is masked from 'package:XVector':
-    ## 
-    ##     slice
-
-    ## The following objects are masked from 'package:IRanges':
-    ## 
-    ##     collapse, desc, intersect, setdiff, slice, union
-
-    ## The following objects are masked from 'package:S4Vectors':
-    ## 
-    ##     first, intersect, rename, setdiff, setequal, union
-
-    ## The following objects are masked from 'package:BiocGenerics':
-    ## 
-    ##     combine, intersect, setdiff, union
-
-    ## The following object is masked from 'package:gridExtra':
-    ## 
-    ##     combine
-
-    ## The following objects are masked from 'package:stats':
-    ## 
-    ##     filter, lag
-
-    ## The following objects are masked from 'package:base':
-    ## 
-    ##     intersect, setdiff, setequal, union
-
-``` r
 library(reshape2)
 abund_df <- melt(abund, value.name = "abund") %>%
   left_join(melt(abund_ranks, value.name = "rank"))
@@ -935,20 +893,6 @@ ggplot(abund_df %>%
 #Nous pouvons maintenant effectuer l'ACP et étudier le biplot résultant, donné dans la figure ci-dessous. Pour produire une annotation pour cette figure, nous avons utilisé le bloc suivant.
 
 library(ade4)
-```
-
-    ## 
-    ## Attaching package: 'ade4'
-
-    ## The following object is masked from 'package:Biostrings':
-    ## 
-    ##     score
-
-    ## The following object is masked from 'package:BiocGenerics':
-    ## 
-    ##     score
-
-``` r
 ranks_pca <- dudi.pca(abund_ranks, scannf = F, nf = 3) 
 row_scores <- data.frame(li = ranks_pca$li,
                          SampleID = rownames(abund_ranks))
