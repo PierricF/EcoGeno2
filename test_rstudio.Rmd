@@ -151,7 +151,7 @@ seqtabNoC <- removeBimeraDenovo(seqtabAll)  # chimères pdt PCR = fragments inco
 #Bien que les nombres exacts varient considérablement selon les conditions expérimentales, il est typique que les chimères constituent une fraction substantielle des variants de séquence inférés, mais seulement une petite fraction de toutes les lectures. C'est ce que l'on observe ici : les chimères représentent environ 22 % des variants de séquence déduits, mais ces variants ne représentent qu'environ 4 % du total des reads.
 ```
 
-```{bash}
+```{bash, eval=FALSE}
 cd home/rstudio
 wget https://zenodo.org/record/4587955/files/silva_nr99_v138.1_train_set.fa.gz   #jeu d'entraînement Silva
 ```
