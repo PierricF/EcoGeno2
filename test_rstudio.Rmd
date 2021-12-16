@@ -6,9 +6,9 @@ output: github_document
 knitr::opts_chunk$set(echo = TRUE, cache=TRUE)
 ```
 
-##CC1
-Pierric MATHIS--FUMEL
-
+ CC1  Pierric MATHIS--FUMEL
+  
+  
 ```{bash, eval=FALSE}
 sudo apt-get update -y
 sudo apt-get install -y libglpk-dev 
@@ -27,7 +27,6 @@ library("BiocStyle")
 install.packages(.cran_packages) 
 .bioc_packages <- c("dada2", "phyloseq", "DECIPHER", "phangorn")
 BiocManager::install(.bioc_packages)
-# Load packages into session, and print package version
 sapply(c(.cran_packages, .bioc_packages), require, character.only = TRUE)
 ```
 ```{bash, eval=FALSE}
@@ -37,9 +36,11 @@ unzip miseqsopdata.zip
 ```
 
 
+  
+    
+    
 
-
-```{r}
+```{r, message=FALSE}
 library("knitr")
 library("BiocStyle")
 .cran_packages <- c("ggplot2", "gridExtra")
@@ -96,11 +97,11 @@ out <- filterAndTrim(fnFs,filtFs,fnRs,filtRs,truncLen=c(240,160),
 head(out)
 ```
 
-#Déduire les variantes de séquences
-#Après le filtrage, le flux de travail bioinformatique typique des amplicons regroupe les lectures de séquençage en unités taxonomiques opérationnelles (OTU) : des groupes de lectures de séquençage qui diffèrent par moins d'un seuil de dissimilarité fixe. Ici, nous utilisons plutôt la méthode DADA2 à haute résolution pour déduire les variantes de séquences d'amplicons (ASV) de manière exacte, sans imposer de seuil arbitraire, et ainsi résoudre les variantes qui diffèrent d'un seul nucléotide (Benjamin J Callahan et al. 2016).
-#Les données de séquence sont importées dans R à partir de fichiers fastq démultiplexés (c'est-à-dire un fastq pour chaque échantillon) et simultanément dérépliquées pour éliminer la redondance. Nous nommons les objets de la classe derep résultants par leur nom d'échantillon.
+Déduire les variantes de séquences  
+Après le filtrage, le flux de travail bioinformatique typique des amplicons regroupe les lectures de séquençage en unités taxonomiques opérationnelles (OTU) : des groupes de lectures de séquençage qui diffèrent par moins d'un seuil de dissimilarité fixe. Ici, nous utilisons plutôt la méthode DADA2 à haute résolution pour déduire les variantes de séquences d'amplicons (ASV) de manière exacte, sans imposer de seuil arbitraire, et ainsi résoudre les variantes qui diffèrent d'un seul nucléotide (Benjamin J Callahan et al. 2016).  
+Les données de séquence sont importées dans R à partir de fichiers fastq démultiplexés (c'est-à-dire un fastq pour chaque échantillon) et simultanément dérépliquées pour éliminer la redondance. Nous nommons les objets de la classe derep résultants par leur nom d'échantillon.
 
-```{r}
+```{r, message=FALSE}
 #La déréplication combine tous les reads de séquençage identiques en "séquences uniques" avec une "abondance" correspondante : le nombre de lectures avec cette séquence unique. La déréplication réduit considérablement le temps de calcul en éliminant les comparaisons redondantes.
 
 derepFs <- derepFastq(filtFs, verbose=TRUE)  #dérépliquer   #verbose=on lui demande d'expliquer les étapes qu'il fait
@@ -122,7 +123,7 @@ plotErrors(errR)
 #Afin de vérifier que les taux d'erreur ont été raisonnablement bien estimés, nous inspectons l'ajustement entre les taux d'erreur observés (points noirs) et les taux d'erreur ajustés (lignes noires) dans la figure 1. Ces figures montrent les fréquences de chaque type de transition en fonction de la qualité.
 ```
 
-seule raison de faire des OTUs = erreurs de séquençage ; donc DADA2 permet de ne plus avoir à regrouper en OTUs -> ASVs
+(La seule raison de faire des OTUs = erreurs de séquençage ; donc DADA2 permet de ne plus avoir à regrouper en OTUs -> ASVs)
 
 ```{r}
 #La méthode d'inférence de séquence DADA2 peut fonctionner selon deux modes différents : Inférence indépendante par échantillon (pool=FALSE), et inférence à partir des reads de séquençage regroupées de tous les échantillons (pool=TRUE). L'inférence indépendante présente l'avantage que le temps de calcul est linéaire par rapport au nombre d'échantillons, et que les besoins en mémoire sont constants avec le nombre d'échantillons. Cela permet de mettre à l'échelle des ensembles de données de taille presque illimitée. L'inférence groupée est plus exigeante en termes de temps de calcul et peut devenir intraitable pour des ensembles de données de plusieurs dizaines de millions de reads. Cependant, la mise en commun améliore la détection de variantes rares qui n'ont été observées qu'une ou deux fois dans un échantillon individuel mais plusieurs fois dans l'ensemble des échantillons. Comme cet ensemble de données n'est pas particulièrement grand, nous effectuons une inférence groupée. Depuis la version 1.2, le multithreading peut être activé avec les arguments multithread = TRUE, ce qui accélère considérablement cette étape.
@@ -211,8 +212,8 @@ ps <- prune_samples(sample_names(ps) != "Mock", ps) # Retirer l'échantillon fic
 ps
 ```
 
-#Utilisation de phyloseq
-#phyloseq(McMurdie and Holmes 2013) est un paquetage R permettant d'importer, de stocker, d'analyser et d'afficher graphiquement des données complexes de séquençage phylogénétique qui ont déjà été regroupées en unités taxonomiques opérationnelles (OTU) ou, de manière plus appropriée, débruitées. Il est particulièrement utile lorsqu'il existe également des données d'échantillon associées, une phylogénie et/ou une affectation taxonomique de chaque taxon. phyloseq exploite et s'appuie sur de nombreux outils disponibles dans R pour l'écologie et l'analyse phylogénétique (ape, vegan, ade4), tout en utilisant des systèmes graphiques avancés/flexibles (ggplot2) pour produire facilement des graphiques de qualité de publication de données phylogénétiques complexes. Le paquet phyloseq utilise un système spécialisé de classes de données S4 pour stocker toutes les données de séquençage phylogénétique connexes sous la forme d'un objet de niveau expérimental unique, autoconsistant et autodescriptif, ce qui facilite le partage des données et la reproduction des analyses. En général, phyloseq cherche à faciliter l'utilisation de R pour une analyse efficace, interactive et reproductible des données de comptage d'amplicons conjointement avec des covariables importantes de l'échantillon.
+Utilisation de phyloseq  
+phyloseq(McMurdie and Holmes 2013) est un package R permettant d'importer, de stocker, d'analyser et d'afficher graphiquement des données complexes de séquençage phylogénétique qui ont déjà été regroupées en unités taxonomiques opérationnelles (OTU) ou, de manière plus appropriée, débruitées. Il est particulièrement utile lorsqu'il existe également des données d'échantillon associées, une phylogénie et/ou une affectation taxonomique de chaque taxon. phyloseq exploite et s'appuie sur de nombreux outils disponibles dans R pour l'écologie et l'analyse phylogénétique (ape, vegan, ade4), tout en utilisant des systèmes graphiques avancés/flexibles (ggplot2) pour produire facilement des graphiques de qualité de publication de données phylogénétiques complexes. Le paquet phyloseq utilise un système spécialisé de classes de données S4 pour stocker toutes les données de séquençage phylogénétique connexes sous la forme d'un objet de niveau expérimental unique, autoconsistant et autodescriptif, ce qui facilite le partage des données et la reproduction des analyses. En général, phyloseq cherche à faciliter l'utilisation de R pour une analyse efficace, interactive et reproductible des données de comptage d'amplicons conjointement avec des covariables importantes de l'échantillon.
 
 
 
@@ -226,11 +227,11 @@ ps = readRDS(ps_connect)
 ps
 ```
 
-#Shiny-phyloseq
-#Il peut être bénéfique de commencer le processus d'exploration des données de manière interactive, cela permet souvent de gagner du temps dans la détection des valeurs aberrantes et des caractéristiques spécifiques des données. Shiny-phyloseq (McMurdie et Holmes 2015) est une application web interactive qui fournit une interface utilisateur graphique au paquet phyloseq. L'objet qui vient d'être chargé dans la session R dans ce flux de travail convient à l'exploration graphique avec Shiny-phyloseq.
-
-#Filtrage
-#phyloseq fournit des outils utiles pour le filtrage, le sous-ensemble et l'agglomération des taxons - une tâche qui est souvent appropriée ou même nécessaire pour une analyse efficace des données de comptage du microbiome. Dans cette sous-section, nous explorons graphiquement la prévalence des taxa dans l'ensemble de données de l'exemple, et nous démontrons comment cela peut être utilisé comme critère de filtrage. L'une des raisons de filtrer de cette manière est d'éviter de passer beaucoup de temps à analyser des taxons qui n'ont été vus que rarement parmi les échantillons. Cette méthode s'avère également utile pour filtrer le bruit (les taxons qui ne sont en fait que des artefacts du processus de collecte des données), une étape qui devrait probablement être considérée comme essentielle pour les ensembles de données construits à l'aide de méthodes heuristiques de regroupement des OTU, qui sont notoirement enclines à générer des taxons parasites.
+Shiny-phyloseq  
+Il peut être bénéfique de commencer le processus d'exploration des données de manière interactive, cela permet souvent de gagner du temps dans la détection des valeurs aberrantes et des caractéristiques spécifiques des données. Shiny-phyloseq (McMurdie et Holmes 2015) est une application web interactive qui fournit une interface utilisateur graphique au paquet phyloseq. L'objet qui vient d'être chargé dans la session R dans ce flux de travail convient à l'exploration graphique avec Shiny-phyloseq.  
+  
+Filtrage  
+phyloseq fournit des outils utiles pour le filtrage, le sous-ensemble et l'agglomération des taxons - une tâche qui est souvent appropriée ou même nécessaire pour une analyse efficace des données de comptage du microbiome. Dans cette sous-section, nous explorons graphiquement la prévalence des taxa dans l'ensemble de données de l'exemple, et nous démontrons comment cela peut être utilisé comme critère de filtrage. L'une des raisons de filtrer de cette manière est d'éviter de passer beaucoup de temps à analyser des taxons qui n'ont été vus que rarement parmi les échantillons. Cette méthode s'avère également utile pour filtrer le bruit (les taxons qui ne sont en fait que des artefacts du processus de collecte des données), une étape qui devrait probablement être considérée comme essentielle pour les ensembles de données construits à l'aide de méthodes heuristiques de regroupement des OTU, qui sont notoirement enclines à générer des taxons parasites.
 ```{r}
 #Filtrage taxonomique
 #Dans de nombreux contextes biologiques, l'ensemble des organismes de tous les échantillons est bien représenté dans la base de données taxonomique de référence disponible. Si ( et seulement si ) c'est le cas, il est raisonnable ou même conseillé de filtrer les caractéristiques taxonomiques pour lesquelles une taxonomie de haut rang n'a pu être attribuée. Dans ce cas, les caractéristiques ambiguës sont presque toujours des artefacts de séquence qui n'existent pas dans la nature. Il devrait être évident qu'un tel filtre n'est pas approprié pour les échantillons provenant de spécimens mal caractérisés ou nouveaux, du moins jusqu'à ce que la possibilité de nouveauté taxonomique puisse être rejetée de manière satisfaisante. Phylum est un rang taxonomique utile à utiliser à cette fin, mais d'autres peuvent fonctionner efficacement pour vos données.
@@ -477,10 +478,10 @@ plot_ordination(pslog, out.wuf.log, color = "age_binned",
   labs(col = "Binned Age", shape = "Litter") 
 ```
 
-#Pourquoi les courbes d'ordination sont-elles si éloignées du carré ?
-#Rapport d'aspect des diagrammes d'ordination
-#Dans les diagrammes d'ordination de la Figure 8-Figure 14, les cartes ne sont pas présentées sous forme de représentations carrées, comme c'est souvent le cas dans les diagrammes PCoA et PCA standard de la littérature.
-#La raison en est que, comme nous essayons de représenter les distances entre les échantillons aussi fidèlement que possible, nous devons tenir compte du fait que la deuxième valeur propre est toujours plus petite que la première, parfois considérablement, et nous normalisons donc les rapports de la norme de l'axe aux rapports des valeurs propres pertinentes. Cela permet de garantir que la variabilité représentée dans les graphiques l'est de manière fidèle.
+Pourquoi les courbes d'ordination sont-elles si éloignées du carré ?  
+Rapport d'aspect des diagrammes d'ordination  
+Dans les diagrammes d'ordination de la Figure 8-Figure 14, les cartes ne sont pas présentées sous forme de représentations carrées, comme c'est souvent le cas dans les diagrammes PCoA et PCA standard de la littérature.  
+La raison en est que, comme nous essayons de représenter les distances entre les échantillons aussi fidèlement que possible, nous devons tenir compte du fait que la deuxième valeur propre est toujours plus petite que la première, parfois considérablement, et nous normalisons donc les rapports de la norme de l'axe aux rapports des valeurs propres pertinentes. Cela permet de garantir que la variabilité représentée dans les graphiques l'est de manière fidèle.
 
 ```{r}
 #PCA on ranks
