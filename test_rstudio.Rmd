@@ -474,7 +474,7 @@ evals <- out.wuf.log$values$Eigenvalues
 plot_ordination(pslog, out.wuf.log, color = "age_binned",
                   shape = "family_relationship") +
   coord_fixed(sqrt(evals[2] / evals[1])) +
-  labs(col = "Binned Age", shape = "Litter")
+  labs(col = "Binned Age", shape = "Litter") 
 ```
 
 #Pourquoi les courbes d'ordination sont-elles si éloignées du carré ?
