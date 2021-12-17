@@ -1,6 +1,9 @@
 ---
-title: "**CC1  Pierric MATHIS- -FUMEL**"
-output: github_document
+title: "**CC1**"
+output:
+  html_document:
+    toc: true
+    toc_depth: 4
 ---
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE, cache=TRUE)
@@ -37,7 +40,7 @@ unzip miseqsopdata.zip
 
 *exécuté*    
 
-#Méthodes
+#Méthodes  
 ##Bioinformatique des amplicons : des reads bruts aux tableaux  
 Construction du tableau des caractéristiques échantillon par séquence à partir des reads brutes, attribution de la taxonomie et création d'un arbre phylogénétique reliant les séquences des échantillons.  
 Tout d'abord, nous chargeons les packages nécessaires.
@@ -57,7 +60,7 @@ Définir la variable path afin qu'elle désigne le répertoire extrait sur la ma
 miseq_path <- "/home/rstudio/MiSeq_SOP"
 list.files(miseq_path)
 ```
-##Filtres et ajustements
+##Filtres et ajustements  
 Nous commençons par filtrer les lectures de séquençage de mauvaise qualité et par ajuster les lectures à une longueur cohérente. Bien que les paramètres de filtrage et d'ajustement généralement recommandés servent de point de départ, il n'existe pas deux ensembles de données identiques et il est donc toujours utile d'inspecter la qualité des données avant de poursuivre.  
 Tout d'abord, nous lisons les noms des fichiers fastq, et nous effectuons quelques manipulations de chaînes pour obtenir des listes de fichiers fastq forward et reverse dans l'ordre correspondant :
 ```{r}
